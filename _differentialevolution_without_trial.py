@@ -23,8 +23,8 @@ _MACHEPS = np.finfo(np.float64).eps
 @_transition_to_rng("seed", position_num=9)
 def differential_evolution_wt(func, bounds, args=(), strategy='best1bin',
                            maxiter=1000, popsize=15, tol=0.01,
-                           mutation=(0.5, 1), recombination=0.7,
-                           diagonal_probability=0,
+                           mutation=(0.5, 1), recombination=(0.7,1.0),
+                           p_blend=(0.5,1.0),
                            rng=None,
                            callback=None, disp=False, polish=True,
                            init='latinhypercube', atol=0, updating='immediate',
@@ -491,7 +491,7 @@ def differential_evolution_wt(func, bounds, args=(), strategy='best1bin',
                                      popsize=popsize, tol=tol,
                                      mutation=mutation,
                                      recombination=recombination,
-                                     diagonal_probability=diagonal_probability,
+                                     p_blend=p_blend,
                                      rng=rng, polish=polish,
                                      callback=callback,
                                      disp=disp, init=init, atol=atol,
@@ -765,8 +765,8 @@ class DifferentialEvolutionSolver:
 
     def __init__(self, func, bounds, args=(),
                  strategy='best1bin', maxiter=1000, popsize=15,
-                 tol=0.01, mutation=(0.5, 1), recombination=0.7, rng=None,
-                 diagonal_probability=0,       
+                 tol=0.01, mutation=(0.5, 1), recombination=(0.7,1.0), rng=None,
+                 p_blend=1,       
                  maxfun=np.inf, callback=None, disp=False, polish=True,
                  init='latinhypercube', atol=0, updating='immediate',
                  workers=1, constraints=(), x0=None, *, integrality=None,
@@ -841,7 +841,6 @@ class DifferentialEvolutionSolver:
 
         #Added: Crossover dithering
         self.cross_over_probability = recombination
-        self.vertex_to_diagonal_probability = diagonal_probability
         if (not np.all(np.isfinite(recombination)) or
             np.any(np.array(recombination) > 1) or
             np.any(np.array(recombination) < 0)):
@@ -849,10 +848,17 @@ class DifferentialEvolutionSolver:
                              'U[0, 2), or specified as a tuple(min, max)'
                              ' where min < max and min, max are in U[0, 1].')
 
+
         self.cross_over_dither = None
         if hasattr(recombination, '__iter__') and len(recombination) > 1:
             self.cross_over_dither = [recombination[0], recombination[1]]
             self.cross_over_dither.sort()
+
+        self.p_blend = p_blend
+        self.p_blend_dither = None
+        if hasattr(p_blend, '__iter__') and len(p_blend) > 1:
+            self.p_blend_dither = [p_blend[0], p_blend[1]]
+            self.p_blend_dither.sort()
         #End added
         
         # we create a wrapped function to allow the use of map (and Pool.map
@@ -1586,10 +1592,13 @@ class DifferentialEvolutionSolver:
         if self.dither is not None:
             self.scale = self.random_number_generator.uniform(self.dither[0],
                                                               self.dither[1])
-        # Added: CR dither
+        # Added: CR and p_blend dither
         if self.cross_over_dither is not None:
             self.cross_over_probability = self.random_number_generator.uniform(self.cross_over_dither[0],
                                                                                self.cross_over_dither[1])
+        if self.p_blend_dither is not None:
+            self.p_blend = self.random_number_generator.uniform(self.p_blend_dither[0],
+                                                                self.p_blend_dither[1])
         # End added
 
         if self._updating == 'immediate':
@@ -1782,31 +1791,19 @@ class DifferentialEvolutionSolver:
         fill_point = rng_integers(rng, self.parameter_count)
         samples = self._select_samples(candidate, 5)
 
-        trial = np.copy(self.population[candidate])
-
         if self.strategy in ['currenttobest1exp', 'currenttobest1bin']:
             bprime = self.mutation_func(candidate, samples)
         else:
             bprime = self.mutation_func(samples)
 
-        crossovers = rng.uniform(size=self.parameter_count)
-        crossovers = crossovers < self.cross_over_probability
+        crossovers = rng.uniform(size=self.parameter_count) < self.cross_over_probability
         if self.strategy in self._binomial:
-            # the last one is always from the bprime vector for binomial
-            # If you fill in modulo with a loop you have to set the last one to
-            # true. If you don't use a loop then you can have any random entry
-            # be True.
             crossovers[fill_point] = True
-            vd_probability = np.random.uniform()
-            if vd_probability >= self.vertex_to_diagonal_probability:
-                trial = np.where(crossovers, bprime, trial)
-            else:
-                #rial = ( 1 - self.cross_over_probability / self.vertex_to_diagonal_probability ) * self.population[candidate]
-                #+ ( self.cross_over_probability / self.vertex_to_diagonal_probability) * bprime
-                #trial = bprime
-                trial = ( self.cross_over_probability ) * self.population[candidate] + ( 1 - self.cross_over_probability ) * bprime
-                trial = np.where(crossovers, bprime, trial)
-                #trial = np.lerp(self.population[candidate], bprime, p)
+            trial = np.copy(self.population[candidate])
+
+            blended_vector_full = self.p_blend * self.population[candidate] + (1.0 - self.p_blend) * bprime
+            
+            trial[crossovers] = blended_vector_full[crossovers]
             return trial
 
         elif self.strategy in self._exponential:
