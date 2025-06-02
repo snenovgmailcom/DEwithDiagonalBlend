@@ -13,10 +13,12 @@ from cec2017.functions import (
     f21, f22, f23, f24, f25, f26, f27, f28, f29, f30
 )
 
-from differentialevolution_d_blend import differential_evolution as differential_evolution
+from scipy.optimize import differential_evolution as differential_evolution
+from differentialevolution_d_blend import differential_evolution as differential_evolution_d_blend
+
 
 # === INITIAL CONDITIONS ===
-DIMENSIONS = 100
+DIMENSIONS = 10
 MAX_ITER = 10000
 NUM_RUNS = 51
 N_JOBS = 80  # Adjust to your CPU
@@ -35,8 +37,8 @@ FUNCTIONS = {
     f'cec2017_f{i}': partial(cec_wrapper, f)
     for i, f in enumerate(
             [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10,
-             f11, f12, f13, f14, f15, f16, f17, f18, f19, f20,
-             f21, f22, f23, f24, f25, f26, f27, f28, f29, f30
+             #f11, f12, f13, f14, f15, f16, f17, f18, f19, f20,
+             #f21, f22, f23, f24, f25, f26, f27, f28, f29, f30
              ], 1)
 }
 
@@ -49,9 +51,9 @@ def de_solve(func, bounds, maxiter, seed):
         func,
         bounds=[bounds]*DIMENSIONS,
         maxiter=maxiter,
-        recombination=(0.5,1.0),
+        #recombination=0.7,
         seed=seed,
-        p_blend=0,
+        #p_blend=0,
         tol=0,
         atol=1e-3,
         disp=False,
@@ -75,13 +77,13 @@ def de_d_blended_solve(func, bounds, maxiter, seed):
     best_so_far = []
     def callback(xk, convergence=None):
         best_so_far.append(func(xk))
-    result = differential_evolution(
+    result = differential_evolution_d_blend(
         func,
         bounds=[bounds]*DIMENSIONS,
         maxiter=maxiter,
-        recombination=(0.9,1.0),
+        recombination=(0.3,0.9),
         seed=seed,
-        p_blend=(0.7, 1.0),
+        p_blend=(0.0, 1.0),
         tol=0,
         atol=1e-3,
         disp=False,

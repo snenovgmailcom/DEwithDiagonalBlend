@@ -845,7 +845,7 @@ class DifferentialEvolutionSolver:
             np.any(np.array(recombination) > 1) or
             np.any(np.array(recombination) < 0)):
             raise ValueError('The recombination constant must be a float in '
-                             'U[0, 2), or specified as a tuple(min, max)'
+                             'U[0, 1), or specified as a tuple(min, max)'
                              ' where min < max and min, max are in U[0, 1].')
 
 
@@ -1796,25 +1796,65 @@ class DifferentialEvolutionSolver:
         else:
             bprime = self.mutation_func(samples)
 
-        crossovers = rng.uniform(size=self.parameter_count) < self.cross_over_probability
-        if self.strategy in self._binomial:
-            crossovers[fill_point] = True
-            trial = np.copy(bprime)
+        #crossovers = rng.uniform(size=self.parameter_count) < self.cross_over_probability
+        #if self.strategy in self._binomial:
+        #    crossovers[fill_point] = True
+        #    trial = np.copy(bprime)
+        #
+        #    blended_vector_full = self.p_blend * self.population[candidate] + (1.0 - self.p_blend) * bprime
+        #    
+        #    trial[crossovers] = blended_vector_full[crossovers]
+        #    return trial
+        #
+        #elif self.strategy in self._exponential:
+        #    i = 0
+        #    crossovers[0] = True
+        #    while i < self.parameter_count and crossovers[i]:
+        #        trial[fill_point] = bprime[fill_point]
+        #        fill_point = (fill_point + 1) % self.parameter_count
+        #        i += 1
 
-            blended_vector_full = self.p_blend * self.population[candidate] + (1.0 - self.p_blend) * bprime
-            
-            trial[crossovers] = blended_vector_full[crossovers]
-            return trial
+        trial = self.d_crossover(bprime, self.population[candidate], self.p_blend, self.cross_over_probability, rng)
+        return trial
 
-        elif self.strategy in self._exponential:
-            i = 0
-            crossovers[0] = True
-            while i < self.parameter_count and crossovers[i]:
-                trial[fill_point] = bprime[fill_point]
-                fill_point = (fill_point + 1) % self.parameter_count
-                i += 1
+    def d_crossover(self, bprime, candidate, t, crossover, rng):
+        bprime = np.asarray(bprime)
+        candidate = np.asarray(candidate)
+        N = len(bprime)
 
-            return trial
+        onto_types = ['vertex', 'edge', 'face', 'diagonal']
+        ratios = np.array([0.5, 0.3, 0.2, 0.0])  # last is for diagonal
+
+        if crossover == 0:
+            return bprime + t * (candidate - bprime)
+        if crossover == 1:
+            onto = 'vertex'
+        else:
+            ratios[-1] = 1 - crossover  # diagonal prob
+            non_diag = crossover
+            ratios[:-1] *= non_diag / np.sum(ratios[:-1])
+            probs = ratios
+            onto = rng.choice(onto_types, p=probs)
+
+        if onto == 'diagonal':
+            return bprime + t * (candidate - bprime)
+        elif onto == 'vertex':
+            while True:
+                mask = rng.randint(0, 2, size=N)
+                if not np.all(mask == 1):
+                    break
+            return bprime + mask * (candidate - bprime)
+        elif onto == 'edge':
+            idx = rng.randint(0, N)
+            mask = rng.randint(0, 2, size=N)
+            pt = bprime + mask * (candidate - bprime)
+            pt[idx] = bprime[idx] + t * (candidate[idx] - bprime[idx])
+            return pt
+        elif onto == 'face':
+            idx = rng.randint(0, N)
+            pt = bprime + t * (candidate - bprime)
+            pt[idx] = rng.choice([bprime[idx], candidate[idx]])
+            return pt
 
     def _best1(self, samples):
         """best1bin, best1exp"""
